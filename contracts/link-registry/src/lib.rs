@@ -5,6 +5,7 @@ use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contract
 const DAY_LEDGERS: u32 = 17_280;
 const EXTEND_TO: u32 = 365 * DAY_LEDGERS;
 const EXTEND_AT: u32 = 30 * DAY_LEDGERS;
+const MAX_DESTINATION_LEN: u32 = 2048;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,6 +41,8 @@ pub enum Error {
     InvalidDestination = 2,
     AliasTaken = 3,
     LinkNotFound = 4,
+    /// Stored owner does not match the authenticated address.
+    Unauthorized = 5,
 }
 
 #[contract]
@@ -49,7 +52,8 @@ pub struct LinkRegistry;
 impl LinkRegistry {
     pub fn create(env: Env, owner: Address, alias: String, destination: String) -> Result<Link, Error> {
         owner.require_auth();
-        validate(&alias, &destination)?;
+        validate_alias(&alias)?;
+        validate_destination(&destination)?;
 
         let key = DataKey::Link(alias.clone());
         if env.storage().persistent().has(&key) {
@@ -81,15 +85,13 @@ impl LinkRegistry {
 
     pub fn update(env: Env, owner: Address, alias: String, destination: String) -> Result<Link, Error> {
         owner.require_auth();
-        if destination.len() == 0 || destination.len() > 2048 {
-            return Err(Error::InvalidDestination);
-        }
+        validate_destination(&destination)?;
 
         let key = DataKey::Link(alias.clone());
         let mut link: Link = env.storage().persistent().get(&key).ok_or(Error::LinkNotFound)?;
         link.owner.require_auth();
         if link.owner != owner {
-            return Err(Error::LinkNotFound);
+            return Err(Error::Unauthorized);
         }
         link.destination = destination;
         link.active = true;
@@ -106,7 +108,7 @@ impl LinkRegistry {
         let mut link: Link = env.storage().persistent().get(&key).ok_or(Error::LinkNotFound)?;
         link.owner.require_auth();
         if link.owner != owner {
-            return Err(Error::LinkNotFound);
+            return Err(Error::Unauthorized);
         }
         link.active = false;
         link.updated_at = env.ledger().timestamp();
@@ -116,11 +118,34 @@ impl LinkRegistry {
     }
 }
 
-fn validate(alias: &String, destination: &String) -> Result<(), Error> {
-    if alias.len() < 3 || alias.len() > 32 {
+/// Canonical alias grammar shared with Blink clients: `^[a-z0-9-]{3,32}$`.
+fn validate_alias(alias: &String) -> Result<(), Error> {
+    let len = alias.len() as usize;
+    if len < 3 || len > 32 {
         return Err(Error::InvalidAlias);
     }
-    if destination.len() == 0 || destination.len() > 2048 {
+    let mut buf = [0u8; 32];
+    alias.copy_into_slice(&mut buf[..len]);
+    for &byte in &buf[..len] {
+        let ok = matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'-');
+        if !ok {
+            return Err(Error::InvalidAlias);
+        }
+    }
+    Ok(())
+}
+
+/// Destinations must be http(s) and within the stored length bound.
+fn validate_destination(destination: &String) -> Result<(), Error> {
+    let len = destination.len() as usize;
+    if len == 0 || len > MAX_DESTINATION_LEN as usize {
+        return Err(Error::InvalidDestination);
+    }
+    let mut buf = [0u8; MAX_DESTINATION_LEN as usize];
+    destination.copy_into_slice(&mut buf[..len]);
+    let bytes = &buf[..len];
+    let allowed = bytes.starts_with(b"https://") || bytes.starts_with(b"http://");
+    if !allowed {
         return Err(Error::InvalidDestination);
     }
     Ok(())

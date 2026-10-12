@@ -42,5 +42,48 @@ fn rejects_bad_input() {
         ),
         Err(Ok(Error::InvalidAlias))
     );
+    assert_eq!(
+        client.try_create(
+            &owner,
+            &String::from_str(&env, "Stellar"),
+            &String::from_str(&env, "https://example.com")
+        ),
+        Err(Ok(Error::InvalidAlias))
+    );
+    assert_eq!(
+        client.try_create(
+            &owner,
+            &String::from_str(&env, "ste_llar"),
+            &String::from_str(&env, "https://example.com")
+        ),
+        Err(Ok(Error::InvalidAlias))
+    );
+    assert_eq!(
+        client.try_create(
+            &owner,
+            &String::from_str(&env, "stellar"),
+            &String::from_str(&env, "javascript:alert(1)")
+        ),
+        Err(Ok(Error::InvalidDestination))
+    );
 }
 
+#[test]
+fn wrong_owner_is_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkRegistry, ());
+    let client = LinkRegistryClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+    let alias = String::from_str(&env, "owned");
+    let destination = String::from_str(&env, "https://example.com");
+
+    client.create(&owner, &alias, &destination);
+    assert_eq!(
+        client.try_update(&other, &alias, &String::from_str(&env, "https://evil.example")),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(client.try_deactivate(&other, &alias), Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.resolve(&alias).unwrap().destination, destination);
+}

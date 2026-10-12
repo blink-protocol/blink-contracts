@@ -13,6 +13,24 @@ The registry stores a unique alias with its owner, destination, activation statu
 | `update` | Owner | Change and reactivate a destination |
 | `deactivate` | Owner | Disable redirects for an alias |
 
+### Alias policy
+
+Canonical grammar (shared with Blink clients): `^[a-z0-9-]{3,32}$` — lowercase ASCII letters, digits, and hyphens only.
+
+### Destination policy
+
+`create` and `update` accept only `http://` or `https://` destinations up to 2048 characters.
+
+### Error codes
+
+| Code | Name | Meaning |
+|---|---|---|
+| 1 | `InvalidAlias` | Alias fails length/charset policy |
+| 2 | `InvalidDestination` | Destination fails scheme/length policy |
+| 3 | `AliasTaken` | Alias already stored |
+| 4 | `LinkNotFound` | Alias missing |
+| 5 | `Unauthorized` | Authenticated address is not the stored owner |
+
 ## Development
 
 ```bash
